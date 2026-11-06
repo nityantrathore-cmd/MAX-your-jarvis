@@ -1,0 +1,8 @@
+requests
+SpeechRecognition
+soundcard
+numpy
+pyautogui
+pillow
+mss
+screen-brightness-control

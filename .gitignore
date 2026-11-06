@@ -1,0 +1,14 @@
+# Secrets - never upload these
+api_key.txt
+.env
+
+# Python / PyCharm
+.venv/
+venv/
+__pycache__/
+*.pyc
+.idea/
+
+# Files the assistant creates
+screenshot_*.png
+*.wav
