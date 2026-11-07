@@ -1,8 +1,6 @@
 # Max voice assistant (Gemini): wake word + listening + speaking + PC control.
-#techno gamerz
-
-# Install:techno gamerz
-
+#
+# Install:
 #     pip install requests SpeechRecognition soundcard numpy pyautogui pillow mss screen-brightness-control
 #
 # Say:  "hey max, open notepad"  /  "hey max, click the start button"
@@ -15,6 +13,7 @@ import io
 import json
 import math
 import os
+import queue
 import re
 import socket
 import subprocess
@@ -25,6 +24,89 @@ import time
 import warnings
 import webbrowser
 from collections import deque
+from ctypes import wintypes
+
+# ---------------- Small "Max is loading" window (starts first, before the slow imports) ----------------
+SHOW_LOADING_SCREEN = True      # False = no loading window at startup
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)     # sharp window on scaled displays
+except Exception:
+    pass
+_splash = {"gen": 0, "text": "Loading...", "close_at": None}
+
+
+def splash_status(text):
+    _splash["text"] = text
+
+
+def splash_close(delay=0.0):
+    _splash["close_at"] = time.time() + delay
+
+
+def _splash_thread(gen):
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+    except Exception:
+        return
+    KEY = "#010203"                                       # this colour becomes see-through
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
+    try:
+        root.attributes("-transparentcolor", KEY)
+    except Exception:
+        pass
+    root.attributes("-alpha", 0.0)
+    root.configure(bg=KEY)
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    scale = max(1.0, min(2.5, sh / 1080))
+
+    def s(v):
+        return int(v * scale)
+
+    W, H = s(290), s(96)
+    root.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
+    cv = tk.Canvas(root, width=W, height=H, bg=KEY, highlightthickness=0)
+    cv.pack()
+    accent, dim = "#00be87", "#14543f"
+    born = time.time()
+
+    def tick():
+        now = time.time()
+        due = _splash["close_at"]
+        if _splash["gen"] != gen or (due is not None and now >= due) or now - born > 90:
+            root.destroy()
+            return
+        root.attributes("-alpha", min(0.96, (now - born) * 4))            # quick fade-in
+        cv.delete("all")
+        r = s(26)
+        pts = [r, 2, W - r, 2, W - 2, 2, W - 2, r, W - 2, H - r, W - 2, H - 2, W - r, H - 2,
+               r, H - 2, 2, H - 2, 2, H - r, 2, r, 2, 2]
+        cv.create_polygon(pts, smooth=True, fill="#12141a", outline=dim, width=s(2))
+        cx, cy = s(48), H // 2
+        rr = s(19)
+        cv.create_arc(cx - rr, cy - rr, cx + rr, cy + rr, start=(now * 330) % 360, extent=250,
+                      style="arc", outline=accent, width=s(4))
+        pr = s(7) + s(1.5) * math.sin(now * 4)
+        cv.create_oval(cx - pr, cy - pr, cx + pr, cy + pr, fill=accent, outline="")
+        cv.create_text(s(88), s(32), anchor="w", text="MAX", fill=accent, font=("Segoe UI", -s(11), "bold"))
+        cv.create_text(s(88), s(56), anchor="w", text=_splash["text"], fill="#e8eaf0",
+                       font=("Segoe UI Semibold", -s(15)))
+        root.after(33, tick)
+
+    tick()
+    root.mainloop()
+
+
+def start_splash():
+    if not SHOW_LOADING_SCREEN:
+        return
+    _splash["gen"] += 1
+    _splash.update(close_at=None, text="Loading...")
+    threading.Thread(target=_splash_thread, args=(_splash["gen"],), daemon=True).start()
+
+
+start_splash()
 
 import numpy as np
 import pyautogui
@@ -59,6 +141,7 @@ if BACKGROUND:
     sys.stdout = sys.stderr = open(LOG_FILE, "a", buffering=1, encoding="utf-8")
     print(f"\n===== Max started {time.strftime('%Y-%m-%d %H:%M:%S')} =====")
 stop_event = threading.Event()                          # set when you click Quit in the tray icon
+text_commands = queue.Queue()                           # commands typed in the text window (hotkey)
 
 try:
     import screen_brightness_control as sbc
@@ -71,6 +154,7 @@ KEY_STORE = os.path.join(DATA_DIR, "key.dat")
 
 def fatal(message):
     # Shows a message box (the .exe has no console) and quits.
+    splash_close()
     print(message)
     try:
         ctypes.windll.user32.MessageBoxW(0, message, "Max", 0x10)
@@ -131,6 +215,7 @@ def key_is_valid(key):
 def prompt_for_key():
     # First-run window: dark, modern, with a glowing orb. Returns the key, or "" if cancelled.
     import tkinter as tk
+    splash_close()                                            # hide the loading window while we ask
 
     BG, PANEL, BORDER = (15, 17, 22), (26, 29, 38), (48, 54, 70)
     ACCENT, TEXT, MUTED, ERR = (0, 190, 135), (236, 239, 245), (140, 150, 168), (255, 105, 105)
@@ -164,7 +249,7 @@ def prompt_for_key():
     try:                                                      # window icon = the Max orb
         buf = io.BytesIO()
         tray_image("idle").save(buf, format="PNG")
-        root._icon = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
+        root._icon = tk.PhotoImage(master=root, data=base64.b64encode(buf.getvalue()))
         root.iconphoto(True, root._icon)
     except Exception:
         pass
@@ -323,6 +408,7 @@ def load_api_key():
     key = prompt_for_key()
     if key:
         save_key(key)
+        start_splash()                                        # bring the loading window back
     return key
 
 
@@ -345,6 +431,7 @@ WAKE_PREFIXES = ["hey", "ok", "okay", "hi", "hello"]  # optional words before th
 OVERLAY = True         # cool floating status pill near the clock: glowing orb that reacts to your voice
 TRAY_ICON = True       # small icon near the clock with "Open log" and "Quit Max" (needs: pip install pystray)
 WAKE_BEEP = True       # short beep when Max hears his name, so you know when to talk
+TEXT_HOTKEY = "ctrl+alt+m"  # press this anywhere to open a small box and TYPE a command to Max. "" = off
 MAX_ACTIONS = 10                             # safety cap per command
 SCREEN_WORDS = ("screen", "click", "look at", "what's on", "on my display")   # only these send a screenshot (slower)
 
@@ -390,11 +477,13 @@ SYSTEM_PROMPT = "\n".join([
     "{\"type\":\"screenshot\"}",
     "{\"type\":\"brightness\",\"level\":0-100}",
     "{\"type\":\"wait\",\"seconds\":1}",
+    "{\"type\":\"close_app\",\"name\":\"notepad\"}        (closes that program by its name, e.g. chrome, spotify, notepad)",
+    "{\"type\":\"lock_pc\"}                                (locks the PC. ONLY when the user clearly says lock)",
     "",
     "Rules: keep \"say\" under 12 words, natural and quick. If a screenshot is attached, coordinates",
     "must be in that screenshot's pixel space. Use [] for actions if only chatting.",
     "Never do anything destructive (deleting files, formatting, payments) without",
-    "the user clearly asking for it.",
+    "the user clearly asking for it. Never shut down, restart or sign out the PC.",
 ])
 
 # ---------------- Microphone ----------------
@@ -604,7 +693,7 @@ def record_phrase(timeout=5, limit=8, silence=0.6):
                     print("  (voice detected...)")
             else:
                 waited += CHUNK_SEC
-                if waited >= timeout:
+                if waited >= timeout or stop_event.is_set() or not text_commands.empty():
                     return None
             continue
 
@@ -758,7 +847,7 @@ def pick_model():
 
 def ask_gemini(command):
     parts = [{"text": command}]
-    if any(w in command for w in SCREEN_WORDS):
+    if any(w in command.lower() for w in SCREEN_WORDS):
         b64, (w, h) = screenshot_b64()
         parts[0]["text"] = f"{command}\n(Screenshot attached, {w}x{h} pixels.)"
         parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64}})
@@ -831,6 +920,38 @@ def xy(a):
     return int(a["x"] * SCALE), int(a["y"] * SCALE)
 
 
+APP_ALIASES = {"google chrome": "chrome", "chrome": "chrome", "edge": "msedge", "microsoft edge": "msedge",
+               "word": "winword", "microsoft word": "winword", "excel": "excel", "powerpoint": "powerpnt",
+               "calculator": "calculatorapp", "calc": "calculatorapp", "paint": "mspaint",
+               "task manager": "taskmgr", "visual studio code": "code", "vscode": "code", "vs code": "code",
+               "pycharm": "pycharm64", "spotify": "spotify", "discord": "discord", "firefox": "firefox",
+               "notepad": "notepad", "vlc": "vlc", "teams": "ms-teams", "whatsapp": "whatsapp"}
+PROTECTED_PROCESSES = {"explorer.exe", "winlogon.exe", "csrss.exe", "wininit.exe", "services.exe", "lsass.exe",
+                       "svchost.exe", "smss.exe", "dwm.exe", "system", "registry", "fontdrvhost.exe"}
+CLOSE_WORDS = ("close", "quit", "exit", "kill", "terminate", "stop")     # you must say one of these
+last_command = [""]
+
+
+def close_app(name):
+    # Politely closes a program (like clicking its X). Never touches Windows itself or Max.
+    key = " ".join(str(name).lower().split())
+    exe = APP_ALIASES.get(key, key)
+    if not re.fullmatch(r"[\w .\-]+", exe):
+        print(f"  [Refused to close '{name}']")
+        return
+    if not exe.endswith(".exe"):
+        exe += ".exe"
+    own = {os.path.basename(sys.executable).lower(), "python.exe", "pythonw.exe", "max.exe"}
+    if exe in PROTECTED_PROCESSES or exe in own:
+        print(f"  [Refused to close {exe} - it is protected]")
+        return
+    r = subprocess.run(["taskkill", "/IM", exe], capture_output=True, text=True, creationflags=0x08000000)
+    if r.returncode == 0:
+        print(f"  Closed {exe}")
+    else:
+        print(f"  [Could not close {exe}: {(r.stdout or r.stderr).strip()[:120]}]")
+
+
 def run_action(a):
     t = a.get("type")
     if t == "move":
@@ -863,10 +984,22 @@ def run_action(a):
         sbc.set_brightness(max(0, min(100, int(a["level"]))))
     elif t == "wait":
         time.sleep(min(float(a.get("seconds", 1)), 10))
+    elif t == "close_app":
+        if any(w in last_command[0].lower() for w in CLOSE_WORDS):
+            close_app(a.get("name", ""))
+        else:
+            print("  [Blocked close_app: you did not ask to close anything]")
+    elif t == "lock_pc":
+        if "lock" in last_command[0].lower():
+            time.sleep(1.5)                                   # let Max finish his sentence
+            ctypes.windll.user32.LockWorkStation()
+        else:
+            print("  [Blocked lock_pc: you did not ask to lock the PC]")
 
 
 def handle(command):
     t0 = time.time()
+    last_command[0] = command
     set_state("thinking")
     try:
         result = ask_gemini(command)
@@ -1098,6 +1231,131 @@ def run_overlay():
     root.mainloop()
 
 
+# ---------------- Text mode: press the hotkey, type a command ----------------
+text_bar_open = threading.Event()
+
+
+def parse_hotkey(spec):
+    mods = {"ctrl": 0x2, "control": 0x2, "alt": 0x1, "shift": 0x4, "win": 0x8, "windows": 0x8}
+    named = {"space": 0x20, "enter": 0x0D, "tab": 0x09}
+    flags, vk, is_fkey = 0, None, False
+    for part in spec.lower().replace(" ", "").split("+"):
+        if part in mods:
+            flags |= mods[part]
+        elif part in named:
+            vk = named[part]
+        elif re.fullmatch(r"f([1-9]|1[0-9]|2[0-4])", part):
+            vk, is_fkey = 0x6F + int(part[1:]), True
+        elif len(part) == 1 and part.isalnum():
+            vk = ord(part.upper())
+        else:
+            raise ValueError(f"unknown key '{part}'")
+    if vk is None or (flags == 0 and not is_fkey):
+        raise ValueError("use at least one of ctrl/alt/shift/win plus a key, e.g. ctrl+alt+m")
+    return flags, vk
+
+
+def hotkey_loop():
+    # Listens for the global hotkey (works while you are in any other program).
+    try:
+        flags, vk = parse_hotkey(TEXT_HOTKEY)
+    except ValueError as e:
+        print(f"[TEXT_HOTKEY problem: {e}]")
+        return
+    user32 = ctypes.windll.user32
+    if not user32.RegisterHotKey(None, 1, flags | 0x4000, vk):         # 0x4000 = no repeat while held
+        print(f"[The hotkey {TEXT_HOTKEY} is already used by another program. Change TEXT_HOTKEY.]")
+        return
+    print(f"Text mode: press {TEXT_HOTKEY} to type a command to Max.")
+    msg = wintypes.MSG()
+    try:
+        while not stop_event.is_set():
+            if user32.PeekMessageW(ctypes.byref(msg), None, 0x0312, 0x0312, 1):   # 0x0312 = WM_HOTKEY
+                text_bar_open.set()
+            else:
+                time.sleep(0.05)
+    finally:
+        user32.UnregisterHotKey(None, 1)
+
+
+def run_text_mode():
+    # A small dark window to type a command to Max. Runs in its own thread.
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+    except Exception as e:
+        print(f"(No text mode: {e})")
+        return
+    root.withdraw()
+
+    BG, PANEL, BORDER, ACCENT, TEXT, MUTED = "#0f1116", "#1a1d26", "#30364a", "#00be87", "#ecf0f5", "#8c96a8"
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    scale = max(1.0, min(2.5, sh / 1080))
+
+    def s(v):
+        return int(v * scale)
+
+    bar = tk.Toplevel(root)
+    bar.withdraw()
+    bar.title("Max")
+    bar.configure(bg=BG)
+    bar.resizable(False, False)
+    W, H = s(560), s(118)
+
+    head = tk.Frame(bar, bg=BG)
+    head.pack(fill="x", padx=s(22), pady=(s(14), s(8)))
+    tk.Label(head, text="MAX", bg=BG, fg=ACCENT, font=("Segoe UI", -s(12), "bold")).pack(side="left")
+    tk.Label(head, text="Type a command and press Enter", bg=BG, fg=MUTED,
+             font=("Segoe UI", -s(12))).pack(side="left", padx=(s(10), 0))
+    box = tk.Frame(bar, bg=PANEL, highlightthickness=s(2), highlightbackground=BORDER, highlightcolor=ACCENT)
+    box.pack(fill="x", padx=s(22))
+    entry = tk.Entry(box, bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat", bd=0,
+                     highlightthickness=0, font=("Segoe UI", -s(17)))
+    entry.pack(fill="x", padx=s(12), pady=s(10))
+    tk.Label(bar, text="Esc to close", bg=BG, fg=MUTED, font=("Segoe UI", -s(11))).pack(pady=(s(6), 0))
+
+    def hide(event=None):
+        bar.withdraw()
+
+    def send(event=None):
+        text = entry.get().strip()
+        hide()
+        if text:
+            text_commands.put(text)
+
+    def show():
+        bar.geometry(f"{W}x{H}+{(sw - W) // 2}+{int(sh * 0.28)}")
+        bar.deiconify()
+        bar.attributes("-topmost", True)
+        bar.lift()
+        try:                                                  # dark title bar + bring to the front
+            bar.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(bar.winfo_id())
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+        bar.focus_force()
+        entry.delete(0, "end")
+        entry.focus_force()
+
+    entry.bind("<Return>", send)
+    bar.bind("<Escape>", hide)
+    bar.protocol("WM_DELETE_WINDOW", hide)
+
+    def poll():
+        if stop_event.is_set():
+            root.destroy()
+            return
+        if text_bar_open.is_set():
+            text_bar_open.clear()
+            show()
+        root.after(80, poll)
+
+    poll()
+    root.mainloop()
+
+
 def single_instance():
     # Stops a second copy of Max from starting (two Maxes would both answer you).
     lock = socket.socket()
@@ -1170,27 +1428,50 @@ def start_tray():
 
 def main():
     lock = single_instance()                  # keep a reference so the lock stays active
+    splash_status("Starting...")
     tray = start_tray()
     if OVERLAY:
         threading.Thread(target=run_overlay, daemon=True).start()
+    if TEXT_HOTKEY:
+        threading.Thread(target=hotkey_loop, daemon=True).start()
+        threading.Thread(target=run_text_mode, daemon=True).start()
+    splash_status("Connecting to Gemini...")
     check_gemini()
+    splash_status("Checking the screen...")
     check_screen()
     if AUTO_PICK_MODEL:
+        splash_status("Finding the fastest model...")
         auto_pick_model()
+    splash_status("Opening the microphone...")
     open_mic()
     print("Calibrating microphone (stay quiet for a second)...")
+    splash_status("Calibrating - stay quiet...")
     calibrate()
+    splash_status("Warming up the voice...")
     if VOICE_MODE == "fast":
         try:
             _start_voice()
         except Exception as e:
             print(f"  [Voice warm-up failed] {e}")
     set_state("idle", "Say \"hey max\"")
+    splash_status("Ready!")
+    splash_close(0.8)
     speak("Max is ready. Say hey max to wake me.")
 
     try:
         while not stop_event.is_set():
             apply_mic_request()                # switch microphone if you picked one in the tray menu
+            if not text_commands.empty():      # a command typed in the text window
+                typed = text_commands.get().strip()
+                if typed:
+                    print(f"You (typed): {typed}")
+                    set_state("hearing", "Typed command")
+                    if any(p in typed.lower() for p in ("stop listening", "goodbye", "exit max", "quit max")):
+                        speak("Goodbye.")
+                        break
+                    handle(typed)
+                    set_state("idle", "Done")
+                continue
             heard, alts = listen(timeout=5, limit=8)
             if not heard:
                 continue
@@ -1207,7 +1488,7 @@ def main():
                     continue
 
             print(f"You: {command}")
-            if any(p in command for p in ("stop listening", "exit", "goodbye")):
+            if any(p in command for p in ("stop listening", "goodbye", "exit max", "quit max")):
                 speak("Goodbye.")
                 break
 
