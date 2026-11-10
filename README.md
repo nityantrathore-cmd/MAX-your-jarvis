@@ -86,3 +86,6 @@ happens, add an exception for `Max.exe`.
 - 503 = Google's model is busy (Max retries and switches models). 429 = free usage limit reached.
 
 Speech recognition sends your voice clips to Google's free web speech service.
+
+##Sorry for
+-no icon
