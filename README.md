@@ -1,4 +1,4 @@
-#Max - a voice assistant for your Windows PC (Gemini)
+# Max - a voice assistant for your Windows PC (Gemini)
 
 Say a wake word, give a command, and Max answers out loud and controls your PC:
 mouse, keyboard, apps, websites, brightness and screenshots. Powered by the Google Gemini API.
