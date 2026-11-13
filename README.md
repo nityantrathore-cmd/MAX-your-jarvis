@@ -90,3 +90,5 @@ Speech recognition sends your voice clips to Google's free web speech service.
 # THANKS 
  
 # please no miss uses
+
+- for more details visit https://pollen-flare-19040650.figma.site/
