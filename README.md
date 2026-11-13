@@ -88,4 +88,9 @@ happens, add an exception for `Max.exe`.
 Speech recognition sends your voice clips to Google's free web speech service.
 
 ## Sorry for
--no icon
+- no icon
+
+# please no miss uses 
+
+
+## thanks 👍
