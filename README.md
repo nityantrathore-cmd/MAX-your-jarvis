@@ -28,7 +28,7 @@ Alternatively set the `GEMINI_API_KEY` environment variable.
 
 ## Run
 ```
-python gemini_assistant.py
+python max.py
 ```
 Stay quiet for a second while it calibrates, then wait for "Max is ready".
 
