@@ -1,3 +1,6 @@
+<img width="2752" height="1536" alt="Gemini_Generated_Image_vzrzluvzrzluvzrz" src="https://github.com/user-attachments/assets/104ad293-17eb-4692-aebe-754d01250ea5" />
+<img width="2752" height="1536" alt="Gemini_Generated_Image_bft8brbft8brbft8" src="https://github.com/user-attachments/assets/87bcf001-6f96-4daf-b569-52cfb011036d" />
+<img width="2752" height="1536" alt="Gemini_Generated_Image_25x75t25x75t25x7" src="https://github.com/user-attachments/assets/dc1a041a-b839-427f-a4f4-703495026e30" />
 # Max - a voice assistant for your Windows PC (Gemini)
 
 Say a wake word, give a command, and Max answers out loud and controls your PC:
