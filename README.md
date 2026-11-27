@@ -11,6 +11,8 @@ mouse, keyboard, apps, websites, brightness and screenshots. Powered by the Goog
 > and don't ask it to do anything destructive. Use at your own risk.
 <img width="2752" height="1536" alt="Gemini_Generated_Image_5cb2865cb2865cb2" src="https://github.com/user-attachments/assets/486433a5-256a-4b62-a49a-390263d4e848" />
 
+## the images are only ao edited not generated!!
+
 ## Requirements
 - Windows 10/11 (uses Windows' built-in voice and microphone APIs)
 - Python 3.10+
