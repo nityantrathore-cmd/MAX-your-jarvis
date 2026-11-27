@@ -93,8 +93,7 @@ happens, add an exception for `Max.exe`.
 ## Tasks: Max works by looking at the screen
 For jobs with many steps, Max switches to task mode: he takes a screenshot, does 1-3 mouse/keyboard actions,
 looks again, and repeats (up to `AGENT_MAX_STEPS`, default 30). Examples:
-- `hey max, open Blender and add a cube, then scale it to double size`
-- `hey max, order a margherita pizza from <your food app>` (the browser must already be logged in)
+- `hey max, open Blender and add a cube, then s<img width="2752" height="1536" alt="Gemini_Generated_Image_5cb2865cb2865cb2" src="https://github.com/user-attachments/assets/bc91d0ed-8884-4f08-a5fd-8bda4260f7f9" />r food app>` (the browser must already be logged in)
 - `hey max, play a game of chess against the computer`
 
 **Stopping a task:** press **Ctrl+Alt+X** (`STOP_HOTKEY`), slam the mouse into the top-left corner, or use
